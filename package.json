@@ -1,0 +1,33 @@
+{
+  "name": "cf_ai_job_coach",
+  "version": "1.0.0",
+  "description": "AI-powered job interview coach built on Cloudflare Workers AI + Agents SDK",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && wrangler deploy --dry-run",
+    "build:client": "vite build",
+    "deploy": "vite build && wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.118",
+    "@cloudflare/ai-chat": "^0.1.8",
+    "@cloudflare/workers-types": "^4.20260310.1",
+    "agents": "^0.7.5",
+    "ai": "^6.0.116",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "workers-ai-provider": "^3.1.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.27.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "wrangler": "^4.72.0"
+  }
+}

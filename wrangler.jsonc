@@ -1,0 +1,35 @@
+{
+  "name": "cf-ai-job-coach",
+  "main": "src/server.ts",
+  "compatibility_date": "2025-02-04",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JOB_COACH",
+        "class_name": "JobCoachAgent"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["JobCoachAgent"]
+    }
+  ],
+
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
