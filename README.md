@@ -4,7 +4,7 @@ An AI-powered job interview coaching agent built on Cloudflare's AI platform. Te
 
 ## Live Demo
 
-> Deployed URL: _(update after `npm run deploy`)_
+> **https://cf-ai-job-coach.alabitemitope51.workers.dev**
 
 ## What It Does
 
