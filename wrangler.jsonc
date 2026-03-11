@@ -11,7 +11,7 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "JOB_COACH",
+        "name": "JOB_COACH_AGENT",
         "class_name": "JobCoachAgent"
       }
     ]

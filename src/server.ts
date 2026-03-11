@@ -13,7 +13,7 @@ import { z } from "zod";
 
 export type Env = {
   AI: Ai;
-  JOB_COACH: DurableObjectNamespace;
+  JOB_COACH_AGENT: DurableObjectNamespace;
 };
 
 export type CoachState = {
