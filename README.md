@@ -1,94 +1,137 @@
-# cf_ai_job_coach — AI Job Interview Coach
+# cf_ai_job_coach
 
-An AI-powered job interview coaching agent built on Cloudflare's AI platform. Tell it what role you're applying for, and it coaches you through interview prep — asking targeted questions, giving feedback on your answers, tracking which topics have been covered, and surfacing weak spots.
+> An interview-coaching agent on Cloudflare's edge. Tell it the role you are preparing for and it
+> runs the session: targeted questions, feedback on each answer, and a live record of which topics
+> you have covered. State lives in a Durable Object, so the agent remembers the role and the
+> coverage across the whole session.
 
-## Live Demo
+**Live:** https://cf-ai-job-coach.alabitemitope51.workers.dev
 
-> **https://cf-ai-job-coach.alabitemitope51.workers.dev**
+Built in a day as a submission for a Cloudflare AI engineering application. Small on purpose, and
+the one genuinely awkward part is documented below.
 
-## What It Does
+---
 
-- **Role-aware coaching**: You describe the job you're applying for; the agent tailors every question and feedback to that role
-- **Topic tracking**: A sidebar shows every interview topic covered so far (React hooks, System Design, Behavioural — Leadership, etc.)
-- **Real feedback**: After each answer the agent tells you what was strong, what was missing, and how to sharpen it
-- **Session memory**: Your job role and covered topics are persisted in Durable Object state — the agent remembers across the whole session
-- **WebSocket streaming**: Responses stream in real-time via the Cloudflare Agents WebSocket protocol
+## What it does
 
-## Architecture — The 4 Required Components
+You open the chat and say what job you are going for. From there the agent drives:
 
-| Component | Implementation |
-|---|---|
-| **LLM** | Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) via Workers AI |
-| **Workflow / coordination** | `AIChatAgent` running on Durable Objects (`JobCoachAgent`) |
-| **User input via chat** | React UI with WebSocket streaming via `@cloudflare/ai-chat` |
-| **Memory / state** | `this.setState()` on the Durable Object — job role + topics persisted |
+- **Role-aware questioning.** Every question and every piece of feedback is conditioned on the role
+  you named, not on a generic interview script.
+- **Feedback per answer.** What was strong, what was missing, how to sharpen it.
+- **Live topic tracking.** A sidebar fills in as topics get covered (React hooks, system design,
+  behavioural leadership, and so on), so you can see the gaps rather than guess at them.
+- **Session memory.** Role and covered topics persist in Durable Object state; chat history persists
+  in the Durable Object's SQLite store and survives a restart.
+- **Streaming responses** over the Agents WebSocket protocol.
 
-## Project Structure
+---
+
+## Architecture
 
 ```
-cf_ai_job_coach/
-├── src/
-│   ├── server.ts      # JobCoachAgent (AIChatAgent) — LLM, tools, state
-│   ├── app.tsx        # React chat UI with sidebar
-│   └── client.tsx     # React entry point
-├── wrangler.jsonc     # Cloudflare Worker + Durable Object config
-├── vite.config.ts     # Vite + Cloudflare plugin
-├── tsconfig.json
-├── package.json
-├── index.html
-├── README.md
-└── PROMPTS.md
+Browser (React 19 + Vite)
+   │  WebSocket, Agents protocol
+   ▼
+routeAgentRequest()                     Cloudflare Worker, edge
+   │
+   ▼
+JobCoachAgent  extends AIChatAgent      Durable Object (one per session)
+   │
+   ├── state: { jobRole, topicsCovered[], sessionProgress }
+   │     └── setState() pushes to the client, sidebar re-renders via onStateUpdate
+   │
+   ├── SQLite-backed message history (survives restarts)
+   │
+   └── onChatMessage()
+         ├── pass 1: AI.run(tools, stream:false)   detect + execute tool calls
+         │             setJobRole / updateTopics / getProgress
+         └── pass 2: AI.run(stream:true)            stream the reply
+                       │
+                       ▼
+              Workers AI: Llama 3.3 70B Instruct (fp8-fast)
 ```
 
-## Running Locally
-
-### Prerequisites
-
-- Node.js 18+
-- A Cloudflare account (free tier works)
-- `wrangler` authenticated: `npx wrangler login`
-
-### Install & Dev
-
-```bash
-npm install
-npm run dev
-```
-
-The dev server starts at `http://localhost:5173`.
-Workers AI calls are proxied through your Cloudflare account — no local mock needed.
-
-> **Note**: The first time you run `npm run dev`, Wrangler may ask you to register a `workers.dev` subdomain. Visit the link it prints and create one (free, takes ~10 seconds).
-
-### Deploy to Production
-
-```bash
-npm run deploy
-```
-
-This builds the React frontend with Vite and deploys the Worker + Durable Object to Cloudflare. The command prints your deployed URL when done.
-
-## Tech Stack
-
-- **Runtime**: Cloudflare Workers (edge, global)
-- **AI**: Workers AI — Llama 3.3 70B Instruct (fp8 fast variant)
-- **Agents SDK**: `@cloudflare/ai-chat` (`AIChatAgent`) + `agents`
-- **State**: Durable Objects with SQLite-backed message history + `setState`
-- **Frontend**: React 19, TypeScript, Vite with `@cloudflare/vite-plugin`
-- **AI SDK**: `ai` v6 + `workers-ai-provider` v3
-
-## How the Agent Works
-
-1. On first message, the system prompt instructs the agent to ask for the target role
-2. Once the user mentions their role, the agent calls `setJobRole` tool → stored in Durable Object state
-3. The agent asks targeted questions; after covering a topic it calls `updateTopics` → appended to state
-4. The React sidebar subscribes to state updates via `onStateUpdate` and renders topics live
-5. All chat history is persisted in the Durable Object's SQLite store and survives restarts
-
-## Environment Bindings (wrangler.jsonc)
+### Bindings
 
 | Binding | Type | Purpose |
 |---|---|---|
 | `AI` | Workers AI | Llama 3.3 70B inference |
-| `JOB_COACH` | Durable Object | Agent instance with chat + state storage |
+| `JOB_COACH_AGENT` | Durable Object | Per-session agent: chat history plus state |
 | `ASSETS` | Static Assets | Serves the React frontend |
+
+### Stack
+
+Cloudflare Workers, Workers AI (Llama 3.3 70B Instruct fp8-fast), `@cloudflare/ai-chat`
+(`AIChatAgent`) with `agents`, Durable Objects, React 19, TypeScript, Vite with
+`@cloudflare/vite-plugin`.
+
+---
+
+## Technical decisions
+
+*Chose X over Y because Z.*
+
+- **Chose two sequential model calls over one streaming call with tools attached.**
+  This is the interesting constraint in the project. Workers AI will not reliably stream *and*
+  resolve tool calls in the same request. The obvious implementation, one streaming call with
+  `tools` attached, produces tool calls that arrive malformed or not at all. So `onChatMessage()`
+  runs pass one non-streaming with tools to detect and execute them, appends the assistant tool-call
+  turn and each tool result to the message array, then runs pass two streaming with no tools to
+  produce the visible reply. It costs an extra round trip before the first token. It buys tool
+  calling that actually fires, which is the difference between an agent and a chatbot.
+
+- **Chose the raw `env.AI` binding over the `workers-ai-provider` abstraction.**
+  The provider layer is the tidier path and it obscured exactly the behaviour above, making it
+  unclear whether tool calls were failing at the model or in the adapter. Dropping to the binding
+  made the request and response shapes explicit, at the cost of hand-writing the Workers AI message
+  types (`WorkersAIMessage`, `WorkersAIResponse`) that the provider would have supplied.
+
+- **Chose Durable Object state over a database for session memory.**
+  A session is one user, minutes long, holding a role string and a list of topics. A Durable Object
+  already exists per session and `setState()` pushes changes to the subscribed client automatically,
+  so the sidebar updates with no polling and no fetch endpoint. A database here would add a network
+  hop and a schema to serve data that does not outlive the conversation.
+
+- **Chose tool calls over parsing the model's prose for state changes.**
+  `setJobRole` and `updateTopics` make the model's intent explicit and typed. Regexing "so you're
+  going for a frontend role" out of generated text is quicker to write and fails silently the first
+  time the model phrases it differently.
+
+---
+
+## Known limitations
+
+- **No evaluation.** Coaching quality is unmeasured. There is no rubric, no scoring of the
+  feedback, and no regression check that a prompt change did not make it worse.
+- **The extra round trip is unconditional.** Pass one runs on every message, including messages
+  that clearly need no tool. Time to first token pays for it every turn.
+- **No tests.** None. A one-day build.
+- **Topic tracking trusts the model.** `updateTopics` fires when the model decides a topic is
+  covered, so the sidebar reflects the model's judgement rather than any objective measure.
+- **Single session, no accounts.** Nothing persists across browsers and there is no way to resume
+  a session later.
+
+---
+
+## Running it
+
+Requires Node 18+, a Cloudflare account (free tier is fine), and `npx wrangler login`.
+
+```bash
+npm install
+npm run dev      # http://localhost:5173, Workers AI proxied through your account
+npm run deploy   # builds the frontend and deploys Worker + Durable Object
+```
+
+On first `npm run dev`, Wrangler may ask you to register a `workers.dev` subdomain. Follow the
+link it prints; it is free and takes about ten seconds.
+
+`PROMPTS.md` contains the system prompt and the development prompts used to build this.
+
+---
+
+## Author
+
+**Temitope Alabi**, MSc Computer Science (AI), University of Lincoln
+[GitHub](https://github.com/toptech5419) · [LinkedIn](https://www.linkedin.com/in/toptech5419/)
